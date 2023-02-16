@@ -6,10 +6,16 @@ import {
   PerspectiveCamera,
   Scene,
   WebGLRenderer,
+  Raycaster,
+  Vector2,
+  MeshBasicMaterial,
+  MeshLambertMaterial
 } from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import { IFCLoader } from "web-ifc-three";
+
+import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 
 //Creates the Three.js scene
 const scene = new Scene();
@@ -37,8 +43,8 @@ directionalLight.position.set(0, 10, 0);
 scene.add(directionalLight);
 
 //Sets up the renderer, fetching the canvas of the HTML
-const threeCanvas = document.getElementById("three-canvas");
-const renderer = new WebGLRenderer({ canvas: threeCanvas, alpha: true });
+const canvas = document.getElementById("three-canvas");
+const renderer = new WebGLRenderer({ canvas: canvas, alpha: true });
 renderer.setSize(size.width, size.height);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 
@@ -52,7 +58,7 @@ axes.renderOrder = 1;
 scene.add(axes);
 
 //Creates the orbit controls (to navigate the scene)
-const controls = new OrbitControls(camera, threeCanvas);
+const controls = new OrbitControls(camera, canvas);
 controls.enableDamping = true;
 controls.target.set(-2, 0, 0);
 
@@ -76,13 +82,85 @@ window.addEventListener("resize", () => {
 // IFC Loading
 const loader = new IFCLoader();
 
+loader.ifcManager.setWasmPath("wasm/");
+
+loader.ifcManager.setupThreeMeshBVH(computeBoundsTree, disposeBoundsTree, acceleratedRaycast);
+
+const ifcModels = [];
+
 const input = document.getElementById('file-input');
 input.addEventListener('change', async () => {
-
-  await loader.ifcManager.setWasmPath('wasm/');
-
   const file = input.files[0];
   const url = URL.createObjectURL(file);
   const model = await loader.loadAsync(url);
   scene.add(model);
+  ifcModels.push(model);
 })
+
+const raycaster = new Raycaster();
+raycaster.firstHitOnly = true;
+const mouse = new Vector2();
+
+function cast(event) {
+  const bounds = canvas.getBoundingClientRect();
+  
+
+  const x1 = event.clientX - bounds.left;
+  const x2 = bounds.right - bounds.left;
+  mouse.x = (x1 / x2) * 2 - 1;
+
+  const y1 = event.clientY - bounds.top;
+  const y2 = bounds.bottom - bounds.top;
+  mouse.y = -(y1 / y2) * 2 + 1;
+  
+  raycaster.setFromCamera(mouse, camera);
+
+  return raycaster.intersectObjects(ifcModels)[0];
+}
+
+const highLightMaterial = new MeshBasicMaterial({
+  transparent: true,
+  opacity: 0.6,
+  color: 0xff88ff,
+  depthTest: false,
+})
+
+const selectionMaterial = new MeshBasicMaterial({
+  transparent: true,
+  opacity: 0.8,
+  color: 0xff22ff,
+  depthTest: false,
+})
+
+let lastModel;
+
+function pick(event, material) {
+  const found = cast(event);
+
+  if( found ) {
+    const index = found.faceIndex;
+    lastModel = found.object;
+    const geometry = found.object.geometry;
+    const id = loader.ifcManager.getExpressId( geometry, index);
+    console.log(id);
+
+    loader.ifcManager.createSubset({
+      modelID: found.object.modelID,
+      material: material,
+      ids: [id],
+      scene,
+      removePrevious: true
+    });
+  } else if (lastModel) {
+  
+    loader.ifcManager.removeSubset(lastModel.modelID, material);
+    lastModel = undefined;
+
+  }
+}
+
+// canvas.ondblclick = function(event) {
+//   pick(event);
+// }
+canvas.onmousemove = (event) => pick( event, highLightMaterial);
+canvas.ondblclick = (event) => pick( event, selectionMaterial);
