@@ -15,6 +15,17 @@ html, body {
     outline: none;
 }
 
+#text-container{
+    position: absolute;
+    margin-top: 2rem;
+    margin-left: 1rem;
+    display: flex;
+}
+
+#text-container *:first-child {
+    margin-right: 5px;
+}
+
 #file-input{
     position: absolute;
 }
