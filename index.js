@@ -17,6 +17,8 @@ import { IFCLoader } from "web-ifc-three";
 
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 
+import { IFCBUILDING } from "web-ifc";
+
 //Creates the Three.js scene
 const scene = new Scene();
 
@@ -134,7 +136,7 @@ const selectionMaterial = new MeshBasicMaterial({
 
 let lastModel;
 
-function pick(event, material) {
+async function pick(event, material, getProps) {
   const found = cast(event);
 
   if( found ) {
@@ -142,7 +144,35 @@ function pick(event, material) {
     lastModel = found.object;
     const geometry = found.object.geometry;
     const id = loader.ifcManager.getExpressId( geometry, index);
-    console.log(id);
+
+    if( getProps ) {
+      const buildings = await loader.ifcManager.getAllItemsOfType(found.object.modelID, IFCBUILDING, true);
+      const building = buildings[0];
+      console.log(building);
+
+      // const buildingProps = await loader.ifcManager.getItemProperties(found.object.modelID, buildingID, true);
+      // console.log(buildingProps);
+
+
+      // const props = await loader.ifcManager.getItemProperties(found.object.modelID, id);
+      // console.log(props);
+      // const pSets = await loader.ifcManager.getPropertySets(found.object.modelID, id);
+      // console.log(pSets);
+
+      // // const realValues = [];
+      // for(const pSet of pSets) {
+      //   const realValues = [];
+
+      //   for(const prop of pSet.HasProperties) {
+      //     const id = prop.value;
+      //     const value = await loader.ifcManager.getItemProperties(found.object.modelID, id);
+      //     realValues.push(value);
+      //   }
+      //   pSet.HasProperties = realValues;
+      //   // pSet.HasProperties = [...realValues];
+      // }
+      // console.log(pSets);
+    }
 
     loader.ifcManager.createSubset({
       modelID: found.object.modelID,
@@ -162,5 +192,5 @@ function pick(event, material) {
 // canvas.ondblclick = function(event) {
 //   pick(event);
 // }
-canvas.onmousemove = (event) => pick( event, highLightMaterial);
-canvas.ondblclick = (event) => pick( event, selectionMaterial);
+canvas.onmousemove = (event) => pick( event, highLightMaterial, false);
+canvas.ondblclick = (event) => pick( event, selectionMaterial, true);
