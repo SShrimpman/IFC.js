@@ -17,7 +17,7 @@ import { IFCLoader } from "web-ifc-three";
 
 import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 
-import { IFCBUILDING } from "web-ifc";
+import { IFCBUILDING, IFCBUILDINGSTOREY } from "web-ifc";
 
 //Creates the Three.js scene
 const scene = new Scene();
@@ -33,10 +33,10 @@ const camera = new PerspectiveCamera(75, size.width / size.height);
 camera.position.z = 15;
 camera.position.y = 13;
 camera.position.x = 8;
+camera.lookAt( 0, 0, 0);
 
 //Creates the lights of the scene
 const lightColor = 0xffffff;
-
 const ambientLight = new AmbientLight(lightColor, 0.5);
 scene.add(ambientLight);
 
@@ -85,7 +85,10 @@ window.addEventListener("resize", () => {
 const loader = new IFCLoader();
 
 loader.ifcManager.setWasmPath("wasm/");
-loader.ifcManager.useWebWorkers( true, "./IFCWorker.js");
+
+let model;
+
+// loader.ifcManager.useWebWorkers( true, "./IFCWorker.js");
 
 // loader.ifcManager.setupThreeMeshBVH(computeBoundsTree, disposeBoundsTree, acceleratedRaycast);
 
@@ -95,21 +98,45 @@ const input = document.getElementById('file-input');
 input.addEventListener('change', async () => {
   const file = input.files[0];
   const url = URL.createObjectURL(file);
-  const model = await loader.loadAsync(url);
+  model = await loader.loadAsync(url);
   scene.add(model);
+  await editFloorName();
   // ifcModels.push(model);
 })
 
-setupProgress();
+async function editFloorName(){
+  const storeysIds = await loader.ifcManager.getAllItemsOfType(model.modelID, IFCBUILDINGSTOREY, false);
+  const firstStoreyID = storeysIds[0];
+  const storey = await loader.ifcManager.getItemProperties(model.modelID, firstStoreyID);
+  console.log(storey);
 
-function setupProgress(){
-  const text = document.getElementById('progress-text');
-  loader.ifcManager.setOnProgress((event) => {
-    const percent = event.loaded / event.total * 100;
-    const formatted = Math.trunc(percent);
-    text.innerText = formatted;
-  })
+  const result = prompt("Introduce the new name fot the storey.");
+  storey.LongName.value = result;
+  loader.ifcManager.ifcAPI.WriteLine(model.modelID, storey);
+
+  const data = await loader.ifcManager.ifcAPI.ExportFileAsIFC(model.modelID);
+  const blob = new Blob([data]);
+  const file = new File([blob], "modified.ifc");
+
+  const link = document.createElement('a');
+  link.download = "modified.ifc";
+  link.href = URL.createObjectURL(file);
+  document.body.appendChild(link);
+  link.click();
+
+  link.remove();
 }
+
+// setupProgress();
+
+// function setupProgress(){
+//   const text = document.getElementById('progress-text');
+//   loader.ifcManager.setOnProgress((event) => {
+//     const percent = event.loaded / event.total * 100;
+//     const formatted = Math.trunc(percent);
+//     text.innerText = formatted;
+//   })
+// }
 
 // const raycaster = new Raycaster();
 // raycaster.firstHitOnly = true;
