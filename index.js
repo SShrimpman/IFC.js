@@ -1,250 +1,183 @@
-import {
-  AmbientLight,
-  AxesHelper,
-  DirectionalLight,
-  GridHelper,
-  PerspectiveCamera,
+import { 
+  Camera,
   Scene,
-  WebGLRenderer,
-  Raycaster,
-  Vector2,
-  MeshBasicMaterial,
-  MeshLambertMaterial
+  DirectionalLight,
+  Vector3, 
+  Matrix4, 
+  WebGLRenderer 
 } from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import { IFCLoader } from "web-ifc-three";
 
-import { acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
+const coordinates = [-8.601427, 41.078230];
 
-import { IFCBUILDING, IFCBUILDINGSTOREY } from "web-ifc";
-
-//Creates the Three.js scene
-const scene = new Scene();
-
-//Object to store the size of the viewport
-const size = {
-  width: window.innerWidth,
-  height: window.innerHeight,
-};
-
-//Creates the camera (point of view of the user)
-const camera = new PerspectiveCamera(75, size.width / size.height);
-camera.position.set( 15, 13, 8);
-camera.lookAt( 0, 0, 0);
-
-//Creates the lights of the scene
-const lightColor = 0xffffff;
-const ambientLight = new AmbientLight(lightColor, 0.5);
-scene.add(ambientLight);
-
-const directionalLight = new DirectionalLight(lightColor, 2);
-directionalLight.position.set(0, 10, 0);
-scene.add(directionalLight);
-
-//Sets up the renderer, fetching the canvas of the HTML
-const canvas = document.getElementById("three-canvas");
-const renderer = new WebGLRenderer({ canvas: canvas, alpha: true });
-renderer.setSize(size.width, size.height);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-
-//Creates grids and axes in the scene
-const grid = new GridHelper(50, 30);
-scene.add(grid);
-
-const axes = new AxesHelper();
-axes.material.depthTest = false;
-axes.renderOrder = 1;
-scene.add(axes);
-
-//Creates the orbit controls (to navigate the scene)
-const controls = new OrbitControls(camera, canvas);
-controls.enableDamping = true;
-controls.target.set(-2, 0, 0);
-
-//Animation loop
-const animate = () => {
-  controls.update();
-  renderer.render(scene, camera);
-  requestAnimationFrame(animate);
-};
-
-animate();
-
-//Adjust the viewport to the size of the browser
-window.addEventListener("resize", () => {
-  (size.width = window.innerWidth), (size.height = window.innerHeight);
-  camera.aspect = size.width / size.height;
-  camera.updateProjectionMatrix();
-  renderer.setSize(size.width, size.height);
+// TO MAKE THE MAP APPEAR YOU MUST
+// ADD YOUR ACCESS TOKEN FROM
+// https://account.mapbox.com
+mapboxgl.accessToken = 'pk.eyJ1Ijoic3NocmltcG1hbiIsImEiOiJjbGVjeGE0bHEwMWc5M3hxYmdlbzM2NnV5In0.RhyumV3HRBH40uyPjdIlag';
+const map = new mapboxgl.Map({
+  container: 'map',
+  // Choose from Mapbox's core styles, or make your own style with Mapbox Studio
+  style: 'mapbox://styles/mapbox/light-v11',
+  zoom: 18,
+  center: coordinates,
+  pitch: 60,
+  antialias: true // create the gl context with MSAA antialiasing, so custom layers are antialiased
 });
 
-// IFC Loading
-const loader = new IFCLoader();
 
-loader.ifcManager.setWasmPath("wasm/");
+// parameters to ensure the model is georeferenced correctly on the map
+const modelOrigin = coordinates;
+const modelAltitude = 0;
+const modelRotate = [Math.PI / 2, 0, 0];
 
-// let model;
+const modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(
+  modelOrigin,
+  modelAltitude
+);
 
-let models = [];
+// transformation parameters to position, rotate and scale the 3D model onto the map
+const modelTransform = {
+  translateX: modelAsMercatorCoordinate.x,
+  translateY: modelAsMercatorCoordinate.y,
+  translateZ: modelAsMercatorCoordinate.z,
+  rotateX: modelRotate[0],
+  rotateY: modelRotate[1],
+  rotateZ: modelRotate[2],
+  /* Since the 3D model is in real world meters, a scale transform needs to be
+  * applied since the CustomLayerInterface expects units in MercatorCoordinates.
+  */
+  scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
+};
 
-// loader.ifcManager.useWebWorkers( true, "./IFCWorker.js");
 
-// loader.ifcManager.setupThreeMeshBVH(computeBoundsTree, disposeBoundsTree, acceleratedRaycast);
+// configuration of the custom layer for a 3D model per the CustomLayerInterface
+const customLayer = {
+  id: '3d-model',
+  type: 'custom',
+  renderingMode: '3d',
+  onAdd: function (map, gl) {
+    this.camera = new Camera();
+    this.scene = new Scene();
 
-// const ifcModels = [];
+    // Load BIM model
+    loadModel(this.scene);
 
-const input = document.getElementById('file-input');
-input.addEventListener('change', async () => {
-  const file = input.files[0];
-  const url = URL.createObjectURL(file);
-  const model = await loader.loadAsync(url);
-  scene.add(model);
-  // await editFloorName();
-  // ifcModels.push(model);
-})
+    // create two three.js lights to illuminate the model
+    const directionalLight = new DirectionalLight(0xffffff);
+    directionalLight.position.set(0, -70, 100).normalize();
+    this.scene.add(directionalLight);
 
-window.onkeydown = async (event) => {
-  if(event.code === "Delete"){
-    for(const model of models){
-      model.removeFromParent();
-    }
+    const directionalLight2 = new DirectionalLight(0xffffff);
+    directionalLight2.position.set(0, 70, 100).normalize();
+    this.scene.add(directionalLight2);
 
-    models = []
+    this.map = map;
 
-    await loader.ifcManager.dispose();
-    loader = null;
-    loader = new IFCLoader();
+    // use the Mapbox GL JS map canvas for three.js
+    this.renderer = new WebGLRenderer({
+      canvas: map.getCanvas(),
+      context: gl,
+      antialias: true
+    });
 
+    this.renderer.autoClear = false;
+  },
+  render: function (gl, matrix) {
+    const rotationX = new Matrix4().makeRotationAxis(
+      new Vector3(1, 0, 0),
+      modelTransform.rotateX
+    );
+    const rotationY = new Matrix4().makeRotationAxis(
+      new Vector3(0, 1, 0),
+      modelTransform.rotateY
+    );
+    const rotationZ = new Matrix4().makeRotationAxis(
+      new Vector3(0, 0, 1),
+      modelTransform.rotateZ
+    );
+
+    const m = new Matrix4().fromArray(matrix);
+    const l = new Matrix4()
+      .makeTranslation(
+        modelTransform.translateX,
+        modelTransform.translateY,
+        modelTransform.translateZ
+      )
+      .scale(
+        new Vector3(
+          modelTransform.scale,
+          -modelTransform.scale,
+          modelTransform.scale
+        )
+      )
+      .multiply(rotationX)
+      .multiply(rotationY)
+      .multiply(rotationZ);
+
+    this.camera.projectionMatrix = m.multiply(l);
+    this.renderer.resetState();
+    this.renderer.render(this.scene, this.camera);
+    this.map.triggerRepaint();
   }
+};
+
+map.on('style.load', () => {
+  map.addLayer(customLayer, 'waterway-label');
+});
+
+map.on('load', () => {
+  // Insert the layer beneath any symbol layer.
+  const layers = map.getStyle().layers;
+  const labelLayerId = layers.find(
+    (layer) => layer.type === 'symbol' && layer.layout['text-field']
+  ).id;
+
+  // The 'building' layer in the Mapbox Streets
+  // vector tileset contains building height data
+  // from OpenStreetMap.
+  map.addLayer(
+    {
+      'id': 'add-3d-buildings',
+      'source': 'composite',
+      'source-layer': 'building',
+      'filter': ['==', 'extrude', 'true'],
+      'type': 'fill-extrusion',
+      'minzoom': 15,
+      'paint': {
+        'fill-extrusion-color': '#aaa',
+
+        // Use an 'interpolate' expression to
+        // add a smooth transition effect to
+        // the buildings as the user zooms in.
+        'fill-extrusion-height': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          15,
+          0,
+          15.05,
+          ['get', 'height']
+        ],
+        'fill-extrusion-base': [
+          'interpolate',
+          ['linear'],
+          ['zoom'],
+          15,
+          0,
+          15.05,
+          ['get', 'min_height']
+        ],
+        'fill-extrusion-opacity': 0.6
+      }
+    },
+    labelLayerId
+  );
+});
+
+async function loadModel(scene){
+  const loader = new IFCLoader();
+  await loader.ifcManager.setWasmPath("./wasm/");
+  const model = await loader.loadAsync("01.ifc");
+  scene.add(model);
 }
-
-// async function editFloorName(){
-//   const storeysIds = await loader.ifcManager.getAllItemsOfType(model.modelID, IFCBUILDINGSTOREY, false);
-//   const firstStoreyID = storeysIds[0];
-//   const storey = await loader.ifcManager.getItemProperties(model.modelID, firstStoreyID);
-//   console.log(storey);
-
-//   const result = prompt("Introduce the new name fot the storey.");
-//   storey.LongName.value = result;
-//   loader.ifcManager.ifcAPI.WriteLine(model.modelID, storey);
-
-//   const data = await loader.ifcManager.ifcAPI.ExportFileAsIFC(model.modelID);
-//   const blob = new Blob([data]);
-//   const file = new File([blob], "modified.ifc");
-
-//   const link = document.createElement('a');
-//   link.download = "modified.ifc";
-//   link.href = URL.createObjectURL(file);
-//   document.body.appendChild(link);
-//   link.click();
-
-//   link.remove();
-// }
-
-// setupProgress();
-
-// function setupProgress(){
-//   const text = document.getElementById('progress-text');
-//   loader.ifcManager.setOnProgress((event) => {
-//     const percent = event.loaded / event.total * 100;
-//     const formatted = Math.trunc(percent);
-//     text.innerText = formatted;
-//   })
-// }
-
-// const raycaster = new Raycaster();
-// raycaster.firstHitOnly = true;
-// const mouse = new Vector2();
-
-// function cast(event) {
-//   const bounds = canvas.getBoundingClientRect();
-  
-
-//   const x1 = event.clientX - bounds.left;
-//   const x2 = bounds.right - bounds.left;
-//   mouse.x = (x1 / x2) * 2 - 1;
-
-//   const y1 = event.clientY - bounds.top;
-//   const y2 = bounds.bottom - bounds.top;
-//   mouse.y = -(y1 / y2) * 2 + 1;
-  
-//   raycaster.setFromCamera(mouse, camera);
-
-//   return raycaster.intersectObjects(ifcModels)[0];
-// }
-
-// const highLightMaterial = new MeshBasicMaterial({
-//   transparent: true,
-//   opacity: 0.6,
-//   color: 0xff88ff,
-//   depthTest: false,
-// })
-
-// const selectionMaterial = new MeshBasicMaterial({
-//   transparent: true,
-//   opacity: 0.8,
-//   color: 0xff22ff,
-//   depthTest: false,
-// })
-
-// let lastModel;
-
-// async function pick(event, material, getProps) {
-//   const found = cast(event);
-
-//   if( found ) {
-//     const index = found.faceIndex;
-//     lastModel = found.object;
-//     const geometry = found.object.geometry;
-//     const id = loader.ifcManager.getExpressId( geometry, index);
-
-//     if( getProps ) {
-//       const buildings = await loader.ifcManager.getAllItemsOfType(found.object.modelID, IFCBUILDING, true);
-//       const building = buildings[0];
-//       console.log(building);
-
-//       // const buildingProps = await loader.ifcManager.getItemProperties(found.object.modelID, buildingID, true);
-//       // console.log(buildingProps);
-
-
-//       // const props = await loader.ifcManager.getItemProperties(found.object.modelID, id);
-//       // console.log(props);
-//       // const pSets = await loader.ifcManager.getPropertySets(found.object.modelID, id);
-//       // console.log(pSets);
-
-//       // // const realValues = [];
-//       // for(const pSet of pSets) {
-//       //   const realValues = [];
-
-//       //   for(const prop of pSet.HasProperties) {
-//       //     const id = prop.value;
-//       //     const value = await loader.ifcManager.getItemProperties(found.object.modelID, id);
-//       //     realValues.push(value);
-//       //   }
-//       //   pSet.HasProperties = realValues;
-//       //   // pSet.HasProperties = [...realValues];
-//       // }
-//       // console.log(pSets);
-//     }
-
-//     loader.ifcManager.createSubset({
-//       modelID: found.object.modelID,
-//       material: material,
-//       ids: [id],
-//       scene,
-//       removePrevious: true
-//     });
-//   } else if (lastModel) {
-  
-//     loader.ifcManager.removeSubset(lastModel.modelID, material);
-//     lastModel = undefined;
-
-//   }
-// }
-
-// // canvas.ondblclick = function(event) {
-// //   pick(event);
-// // }
-// canvas.onmousemove = (event) => pick( event, highLightMaterial, false);
-// canvas.ondblclick = (event) => pick( event, selectionMaterial, true);
