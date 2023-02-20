@@ -54539,7 +54539,7 @@ var IFCBUILDINGELEMENTPARTTYPE = 39481116;
 var IFCBUILDINGELEMENTPROXY = 1095909175;
 var IFCBUILDINGELEMENTPROXYTYPE = 1909888760;
 var IFCBUILDINGELEMENTTYPE = 1950629157;
-var IFCBUILDINGSTOREY$1 = 3124254112;
+var IFCBUILDINGSTOREY = 3124254112;
 var IFCBUILDINGSYSTEM = 1177604601;
 var IFCBURNER = 2938176219;
 var IFCBURNERTYPE = 2188180465;
@@ -55297,7 +55297,7 @@ var IfcElements$1 = [
   IFCBUILDINGELEMENT,
   IFCBUILDINGELEMENTPART,
   IFCBUILDINGELEMENTPROXY,
-  IFCBUILDINGSTOREY$1,
+  IFCBUILDINGSTOREY,
   IFCBURNER,
   IFCCABLECARRIERFITTING,
   IFCCABLECARRIERSEGMENT,
@@ -55699,7 +55699,7 @@ FromRawLineData[IFCBUILDINGELEMENTPROXYTYPE] = (d) => {
 FromRawLineData[IFCBUILDINGELEMENTTYPE] = (d) => {
   return IfcBuildingElementType.FromTape(d.ID, d.type, d.arguments);
 };
-FromRawLineData[IFCBUILDINGSTOREY$1] = (d) => {
+FromRawLineData[IFCBUILDINGSTOREY] = (d) => {
   return IfcBuildingStorey.FromTape(d.ID, d.type, d.arguments);
 };
 FromRawLineData[IFCBUILDINGSYSTEM] = (d) => {
@@ -102925,7 +102925,6 @@ var require_web_ifc = __commonJS({
       exports["WebIFCWasm"] = WebIFCWasm2;
   }
 });
-var IFCBUILDINGSTOREY = 3124254112;
 if (typeof self !== "undefined" && self.crossOriginIsolated) {
   require_web_ifc_mt();
 } else {
@@ -102943,9 +102942,7 @@ const size = {
 
 //Creates the camera (point of view of the user)
 const camera = new PerspectiveCamera(75, size.width / size.height);
-camera.position.z = 15;
-camera.position.y = 13;
-camera.position.x = 8;
+camera.position.set( 15, 13, 8);
 camera.lookAt( 0, 0, 0);
 
 //Creates the lights of the scene
@@ -102999,7 +102996,9 @@ const loader = new IFCLoader();
 
 loader.ifcManager.setWasmPath("wasm/");
 
-let model;
+// let model;
+
+let models = [];
 
 // loader.ifcManager.useWebWorkers( true, "./IFCWorker.js");
 
@@ -103011,34 +103010,49 @@ const input = document.getElementById('file-input');
 input.addEventListener('change', async () => {
   const file = input.files[0];
   const url = URL.createObjectURL(file);
-  model = await loader.loadAsync(url);
+  const model = await loader.loadAsync(url);
   scene.add(model);
-  await editFloorName();
+  // await editFloorName();
   // ifcModels.push(model);
 });
 
-async function editFloorName(){
-  const storeysIds = await loader.ifcManager.getAllItemsOfType(model.modelID, IFCBUILDINGSTOREY, false);
-  const firstStoreyID = storeysIds[0];
-  const storey = await loader.ifcManager.getItemProperties(model.modelID, firstStoreyID);
-  console.log(storey);
+window.onkeydown = async (event) => {
+  if(event.code === "Delete"){
+    for(const model of models){
+      model.removeFromParent();
+    }
 
-  const result = prompt("Introduce the new name fot the storey.");
-  storey.LongName.value = result;
-  loader.ifcManager.ifcAPI.WriteLine(model.modelID, storey);
+    models = [];
 
-  const data = await loader.ifcManager.ifcAPI.ExportFileAsIFC(model.modelID);
-  const blob = new Blob([data]);
-  const file = new File([blob], "modified.ifc");
+    await loader.ifcManager.dispose();
+    loader = null;
+    loader = new IFCLoader();
 
-  const link = document.createElement('a');
-  link.download = "modified.ifc";
-  link.href = URL.createObjectURL(file);
-  document.body.appendChild(link);
-  link.click();
+  }
+};
 
-  link.remove();
-}
+// async function editFloorName(){
+//   const storeysIds = await loader.ifcManager.getAllItemsOfType(model.modelID, IFCBUILDINGSTOREY, false);
+//   const firstStoreyID = storeysIds[0];
+//   const storey = await loader.ifcManager.getItemProperties(model.modelID, firstStoreyID);
+//   console.log(storey);
+
+//   const result = prompt("Introduce the new name fot the storey.");
+//   storey.LongName.value = result;
+//   loader.ifcManager.ifcAPI.WriteLine(model.modelID, storey);
+
+//   const data = await loader.ifcManager.ifcAPI.ExportFileAsIFC(model.modelID);
+//   const blob = new Blob([data]);
+//   const file = new File([blob], "modified.ifc");
+
+//   const link = document.createElement('a');
+//   link.download = "modified.ifc";
+//   link.href = URL.createObjectURL(file);
+//   document.body.appendChild(link);
+//   link.click();
+
+//   link.remove();
+// }
 
 // setupProgress();
 
